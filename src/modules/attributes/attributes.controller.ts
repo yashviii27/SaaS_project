@@ -20,10 +20,21 @@ export class AttributesController {
   constructor(private readonly service: AttributesService) {}
 
   @Post()
-  async create(@Req() req: Request, @Body() dto: CreateAttributeDto) {
-    if ((req as any).role !== "admin")
+  async create(
+    @Req() req: Request,
+    @Body() dto: CreateAttributeDto | CreateAttributeDto[]
+  ) {
+    if ((req as any).role !== "admin") {
       throw new ForbiddenException("Admin only");
-    return this.service.create(dto);
+    }
+
+    // If array → createMany
+    if (Array.isArray(dto)) {
+      return this.service.createMany(dto);
+    }
+
+    // If single object → createOne
+    return this.service.createOne(dto);
   }
 
   @Get()
@@ -50,15 +61,19 @@ export class AttributesController {
     @Param("id") id: string,
     @Body() dto: UpdateAttributeDto
   ) {
-    if ((req as any).role !== "admin")
+    if ((req as any).role !== "admin") {
       throw new ForbiddenException("Admin only");
+    }
+
     return this.service.update(Number(id), dto);
   }
 
   @Delete(":id")
   async remove(@Req() req: Request, @Param("id") id: string) {
-    if ((req as any).role !== "admin")
+    if ((req as any).role !== "admin") {
       throw new ForbiddenException("Admin only");
+    }
+
     return this.service.remove(Number(id));
   }
 }

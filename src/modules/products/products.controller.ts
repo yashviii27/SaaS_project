@@ -22,8 +22,7 @@ export class ProductsController {
 
   @Post()
   async create(@Req() req: Request, @Body() dto: CreateProductDto) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
+    if ((req as any).role !== "user") throw new ForbiddenException("User only");
     return this.service.create(dto);
   }
 
@@ -43,15 +42,13 @@ export class ProductsController {
     @Param("id") id: string,
     @Body() dto: UpdateProductDto
   ) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
+    if ((req as any).role !== "user") throw new ForbiddenException("User only");
     return this.service.update(Number(id), dto);
   }
 
   @Delete(":id")
   async remove(@Req() req: Request, @Param("id") id: string) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
+    if ((req as any).role !== "user") throw new ForbiddenException("User only");
     return this.service.remove(Number(id));
   }
 

@@ -15,6 +15,7 @@ export const ALLOWED_INPUT_TYPES = [
   "date",
   "month",
   "year",
+  "boolean",
 ];
 
 export class CreateAttributeDto {
