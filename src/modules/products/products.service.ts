@@ -79,16 +79,24 @@ export class ProductsService {
 
     const total = await this.prisma.product_master.count({ where });
     const data = await this.prisma.product_master.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
+  where,
+  skip: (Number(page) - 1) * Number(limit),
+  take: Number(limit),
+  include: {
+    brand: true,
+    generic: {
       include: {
-        brand: true,
-        generic: true,
-        attributes: { include: { attribute: true } },
+        group: true,
+        category: true,
       },
-      orderBy: { id: "desc" },
-    });
+    },
+    attributes: {
+      include: { attribute: true }
+    },
+  },
+  orderBy: { id: "desc" },
+});
+
 
     return {
       meta: {
@@ -103,13 +111,21 @@ export class ProductsService {
 
   async findOne(id: number) {
     const p = await this.prisma.product_master.findUnique({
-      where: { id },
+  where: { id },
+  include: {
+    brand: true,
+    generic: {
       include: {
-        brand: true,
-        generic: true,
-        attributes: { include: { attribute: true } },
-      },
-    });
+        group: true,
+        category: true,
+      }
+    },
+    attributes: {
+      include: { attribute: true }
+    }
+  },
+});
+
     if (!p) throw new NotFoundException("Product not found");
     return p;
   }

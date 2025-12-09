@@ -9,56 +9,50 @@ export class GenericsService {
   // CREATE GENERIC + ATTRIBUTES + VALUES
   // ------------------------------------------------------------
   async createGeneric(data: any) {
-    const { generic_name, category_id, attributes } = data;
+    const { generic_name, category_id, group_id, attributes } = data;
 
     if (!generic_name) throw new BadRequestException("generic_name is required");
+    if (!group_id) throw new BadRequestException("group_id is required");
     if (!category_id) throw new BadRequestException("category_id is required");
     if (!Array.isArray(attributes)) throw new BadRequestException("attributes must be an array");
 
-    // 1️⃣ Create Generic (Correct Relational Syntax)
-    // const generic = await this.prisma.generic_master.create({
-    //   data: {
-    //     generic_name: generic_name,
-    //     category: {
-    //       connect: { id: Number(category_id) }
-    //     }
-    //   }
-    // });
+    // ⭐ Allowed input types
+    const allowedInputTypes = ["open", "dropdown"];
 
-
-    const generic = await this.prisma.generic_master.create({
-  data: {
-    generic_name: String(generic_name),
-
-    // ⭐ REQUIRED by Prisma model
-    group: {
-      connect: { id: Number(data.group_id) }
-    },
-
-    // ⭐ REQUIRED by Prisma model
-    category: {
-      connect: { id: Number(category_id) }
+    // Validate each attribute before creating anything
+    for (const attr of attributes) {
+      if (!allowedInputTypes.includes(attr.input_type)) {
+        throw new BadRequestException(
+          `Invalid input_type '${attr.input_type}'. Allowed: open, dropdown`
+        );
+      }
     }
-  }
-});
 
+    // 1️⃣ Create Generic
+    const generic = await this.prisma.generic_master.create({
+      data: {
+        generic_name: String(generic_name),
+        group: { connect: { id: Number(group_id) } },
+        category: { connect: { id: Number(category_id) } }
+      }
+    });
 
-    // 2️⃣ Create Attributes & Values
+    // 2️⃣ Create Attributes + Values
     for (const attr of attributes) {
       const attribute = await this.prisma.attribute_master.create({
         data: {
           generic_id: generic.id,
           attribute_name: attr.attribute_name,
-          input_type: attr.input_type,
+          input_type: attr.input_type,   // validated above
           data_type: attr.data_type,
           is_required: Boolean(attr.is_required),
         }
       });
 
-      // Add attribute values (dropdown options)
-      if (Array.isArray(attr.values) && attr.values.length > 0) {
+      // Handle dropdown values
+      if (attr.input_type === "dropdown" && Array.isArray(attr.values)) {
         await this.prisma.attribute_values_master.createMany({
-          data: attr.values.map(val => ({
+          data: attr.values.map((val) => ({
             attribute_id: attribute.id,
             value: String(val)
           }))
@@ -96,10 +90,9 @@ export class GenericsService {
       skip: (page - 1) * limit,
       take: Number(limit),
       include: {
-        attributes: {
-          include: { values: true }
-        },
+        attributes: { include: { values: true } },
         category: true,
+        group: true
       },
       orderBy: { id: "asc" },
     });
@@ -119,6 +112,7 @@ export class GenericsService {
       include: {
         attributes: { include: { values: true } },
         category: true,
+        group: true
       },
     });
 
@@ -137,9 +131,7 @@ export class GenericsService {
       where: { id },
       data: {
         generic_name: data.generic_name,
-        category: {
-          connect: { id: Number(data.category_id) }
-        }
+        category: { connect: { id: Number(data.category_id) } }
       }
     });
   }
@@ -150,21 +142,23 @@ export class GenericsService {
   async remove(id: number) {
     await this.findOne(id);
 
-    // Delete attributes + values
+    // delete values
     const attrs = await this.prisma.attribute_master.findMany({
-      where: { generic_id: id },
+      where: { generic_id: id }
     });
 
     for (const attr of attrs) {
       await this.prisma.attribute_values_master.deleteMany({
-        where: { attribute_id: attr.id },
+        where: { attribute_id: attr.id }
       });
     }
 
+    // delete attributes
     await this.prisma.attribute_master.deleteMany({
       where: { generic_id: id }
     });
 
+    // delete generic
     return this.prisma.generic_master.delete({ where: { id } });
   }
 }
