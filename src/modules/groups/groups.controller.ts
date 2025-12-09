@@ -19,13 +19,36 @@ import { Request } from "express";
 export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
 
+  // ---------------------- ADMIN ONLY ----------------------
   @Post()
   async create(@Req() req: Request, @Body() dto: CreateGroupDto) {
-    if ((req as any).role !== "admin")
+    if ((req as any).role !== "admin") {
       throw new ForbiddenException("Admin only");
+    }
     return this.groupsService.create(dto);
   }
 
+  @Put(":id")
+  async update(
+    @Req() req: Request,
+    @Param("id") id: string,
+    @Body() dto: UpdateGroupDto
+  ) {
+    if ((req as any).role !== "admin") {
+      throw new ForbiddenException("Admin only");
+    }
+    return this.groupsService.update(Number(id), dto);
+  }
+
+  @Delete(":id")
+  async remove(@Req() req: Request, @Param("id") id: string) {
+    if ((req as any).role !== "admin") {
+      throw new ForbiddenException("Admin only");
+    }
+    return this.groupsService.remove(Number(id));
+  }
+
+  // ---------------------- PUBLIC (ADMIN + USER) ----------------------
   @Get()
   async findAll(
     @Query("page") page: number,
@@ -42,23 +65,5 @@ export class GroupsController {
   @Get(":id")
   async findOne(@Param("id") id: string) {
     return this.groupsService.findOne(Number(id));
-  }
-
-  @Put(":id")
-  async update(
-    @Req() req: Request,
-    @Param("id") id: string,
-    @Body() dto: UpdateGroupDto
-  ) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
-    return this.groupsService.update(Number(id), dto);
-  }
-
-  @Delete(":id")
-  async remove(@Req() req: Request, @Param("id") id: string) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
-    return this.groupsService.remove(Number(id));
   }
 }

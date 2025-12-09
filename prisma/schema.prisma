@@ -38,6 +38,7 @@ model generic_master {
   products     product_master[]
   created_at   DateTime           @default(now())
   updated_at   DateTime?
+  
 }
 
 model brand_master {

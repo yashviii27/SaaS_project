@@ -6,12 +6,10 @@ import {
   Param,
   Put,
   Delete,
-  Query,
   Req,
+  Query,
   ForbiddenException,
-  Res,
 } from "@nestjs/common";
-import { Request, Response } from "express";
 import { ProductsService } from "./products.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
@@ -21,39 +19,36 @@ export class ProductsController {
   constructor(private readonly service: ProductsService) {}
 
   @Post()
-  async create(@Req() req: Request, @Body() dto: CreateProductDto) {
-    if ((req as any).role !== "user") throw new ForbiddenException("User only");
+  async create(@Req() req: any, @Body() dto: CreateProductDto) {
+    if (req.role !== "user")
+      throw new ForbiddenException("Only users can add products");
+
     return this.service.create(dto);
   }
 
   @Get()
-  async list(@Query() query: any) {
+  findAll(@Req() req: any, @Query() query: any) {
     return this.service.findAll(query);
   }
 
   @Get(":id")
-  async single(@Param("id") id: string) {
+  findOne(@Param("id") id: string) {
     return this.service.findOne(Number(id));
   }
 
   @Put(":id")
-  async update(
-    @Req() req: Request,
-    @Param("id") id: string,
-    @Body() dto: UpdateProductDto
-  ) {
-    if ((req as any).role !== "user") throw new ForbiddenException("User only");
+  async update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateProductDto) {
+    if (req.role !== "user")
+      throw new ForbiddenException("Only users can update products");
+
     return this.service.update(Number(id), dto);
   }
 
   @Delete(":id")
-  async remove(@Req() req: Request, @Param("id") id: string) {
-    if ((req as any).role !== "user") throw new ForbiddenException("User only");
-    return this.service.remove(Number(id));
-  }
+  async remove(@Req() req: any, @Param("id") id: string) {
+    if (req.role !== "user")
+      throw new ForbiddenException("Only users can delete products");
 
-  @Get("export")
-  async export(@Res() res: Response, @Query() query: any) {
-    return this.service.export(res, query);
+    return this.service.remove(Number(id));
   }
 }

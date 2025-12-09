@@ -1,69 +1,170 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, BadRequestException, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
-import { CreateGenericDto } from "./dto/create-generic.dto";
-import { UpdateGenericDto } from "./dto/update-generic.dto";
 
 @Injectable()
 export class GenericsService {
   constructor(private prisma: PrismaService) {}
 
-  async create(data: CreateGenericDto) {
-    return this.prisma.generic_master.create({ data });
+  // ------------------------------------------------------------
+  // CREATE GENERIC + ATTRIBUTES + VALUES
+  // ------------------------------------------------------------
+  async createGeneric(data: any) {
+    const { generic_name, category_id, attributes } = data;
+
+    if (!generic_name) throw new BadRequestException("generic_name is required");
+    if (!category_id) throw new BadRequestException("category_id is required");
+    if (!Array.isArray(attributes)) throw new BadRequestException("attributes must be an array");
+
+    // 1️⃣ Create Generic (Correct Relational Syntax)
+    // const generic = await this.prisma.generic_master.create({
+    //   data: {
+    //     generic_name: generic_name,
+    //     category: {
+    //       connect: { id: Number(category_id) }
+    //     }
+    //   }
+    // });
+
+
+    const generic = await this.prisma.generic_master.create({
+  data: {
+    generic_name: String(generic_name),
+
+    // ⭐ REQUIRED by Prisma model
+    group: {
+      connect: { id: Number(data.group_id) }
+    },
+
+    // ⭐ REQUIRED by Prisma model
+    category: {
+      connect: { id: Number(category_id) }
+    }
   }
+});
 
-  async findAll(params: {
-    page?: number;
-    limit?: number;
-    search?: string;
-    category_id?: number;
-    group_id?: number;
-  }) {
-    const { page = 1, limit = 20, search, category_id, group_id } = params;
-    const where: any = {};
-    if (search) where.generic_name = { contains: search, mode: "insensitive" };
-    if (category_id) where.category_id = category_id;
-    if (group_id) where.group_id = group_id;
 
-    const total = await this.prisma.generic_master.count({ where });
-    const data = await this.prisma.generic_master.findMany({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      orderBy: { id: "asc" },
-    });
+    // 2️⃣ Create Attributes & Values
+    for (const attr of attributes) {
+      const attribute = await this.prisma.attribute_master.create({
+        data: {
+          generic_id: generic.id,
+          attribute_name: attr.attribute_name,
+          input_type: attr.input_type,
+          data_type: attr.data_type,
+          is_required: Boolean(attr.is_required),
+        }
+      });
 
-    // include attribute count
-    const dataWithCounts = await Promise.all(
-      data.map(async (g) => {
-        const count = await this.prisma.attribute_master.count({
-          where: { generic_id: g.id },
+      // Add attribute values (dropdown options)
+      if (Array.isArray(attr.values) && attr.values.length > 0) {
+        await this.prisma.attribute_values_master.createMany({
+          data: attr.values.map(val => ({
+            attribute_id: attribute.id,
+            value: String(val)
+          }))
         });
-        return { ...g, attributes_count: count };
-      })
-    );
+      }
+    }
 
     return {
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
-      data: dataWithCounts,
+      success: true,
+      message: "Generic created successfully with attributes & values",
+      generic_id: generic.id
     };
   }
 
-  async findOne(id: number) {
-    const gen = await this.prisma.generic_master.findUnique({
-      where: { id },
-      include: { attributes: true },
+  // ------------------------------------------------------------
+  // FIND ALL
+  // ------------------------------------------------------------
+  async findAll(params: any) {
+    const { page = 1, limit = 20, search, category_id } = params;
+
+    const where: any = {};
+
+    if (search) {
+      where.generic_name = { contains: search, mode: "insensitive" };
+    }
+
+    if (category_id) {
+      where.category_id = Number(category_id);
+    }
+
+    const total = await this.prisma.generic_master.count({ where });
+
+    const data = await this.prisma.generic_master.findMany({
+      where,
+      skip: (page - 1) * limit,
+      take: Number(limit),
+      include: {
+        attributes: {
+          include: { values: true }
+        },
+        category: true,
+      },
+      orderBy: { id: "asc" },
     });
-    if (!gen) throw new NotFoundException("Generic not found");
-    return gen;
+
+    return {
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+      data,
+    };
   }
 
-  async update(id: number, data: UpdateGenericDto) {
+  // ------------------------------------------------------------
+  // FIND ONE
+  // ------------------------------------------------------------
+  async findOne(id: number) {
+    const item = await this.prisma.generic_master.findUnique({
+      where: { id },
+      include: {
+        attributes: { include: { values: true } },
+        category: true,
+      },
+    });
+
+    if (!item) throw new NotFoundException("Generic not found");
+
+    return item;
+  }
+
+  // ------------------------------------------------------------
+  // UPDATE
+  // ------------------------------------------------------------
+  async update(id: number, data: any) {
     await this.findOne(id);
-    return this.prisma.generic_master.update({ where: { id }, data });
+
+    return this.prisma.generic_master.update({
+      where: { id },
+      data: {
+        generic_name: data.generic_name,
+        category: {
+          connect: { id: Number(data.category_id) }
+        }
+      }
+    });
   }
 
+  // ------------------------------------------------------------
+  // DELETE
+  // ------------------------------------------------------------
   async remove(id: number) {
     await this.findOne(id);
+
+    // Delete attributes + values
+    const attrs = await this.prisma.attribute_master.findMany({
+      where: { generic_id: id },
+    });
+
+    for (const attr of attrs) {
+      await this.prisma.attribute_values_master.deleteMany({
+        where: { attribute_id: attr.id },
+      });
+    }
+
+    await this.prisma.attribute_master.deleteMany({
+      where: { generic_id: id }
+    });
+
     return this.prisma.generic_master.delete({ where: { id } });
   }
 }

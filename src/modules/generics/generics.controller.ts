@@ -1,68 +1,43 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Put,
-  Delete,
-  Query,
-  Req,
-  ForbiddenException,
-} from "@nestjs/common";
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from "@nestjs/common";
 import { GenericsService } from "./generics.service";
-import { CreateGenericDto } from "./dto/create-generic.dto";
-import { UpdateGenericDto } from "./dto/update-generic.dto";
-import { Request } from "express";
+// import { AdminGuard } from "../auth/admin.guard";
+
+import { AdminGuard } from "../../guards/admin.guard";
+
 
 @Controller("generics")
 export class GenericsController {
   constructor(private readonly service: GenericsService) {}
 
+  // ⭐ ADMIN ONLY — Create generic + its attributes + values
   @Post()
-  async create(@Req() req: Request, @Body() dto: CreateGenericDto) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
-    return this.service.create(dto);
+  @UseGuards(AdminGuard)
+  async create(@Body() dto: any) {
+    return this.service.createGeneric(dto);
   }
 
+  // ⭐ ADMIN ONLY — Update
+  @Put(":id")
+  @UseGuards(AdminGuard)
+  async update(@Param("id") id: string, @Body() dto: any) {
+    return this.service.update(Number(id), dto);
+  }
+
+  // ⭐ ADMIN ONLY — Delete
+  @Delete(":id")
+  @UseGuards(AdminGuard)
+  async remove(@Param("id") id: string) {
+    return this.service.remove(Number(id));
+  }
+
+  // ⭐ USER + ADMIN — Can view
   @Get()
-  async findAll(
-    @Query("page") page: number,
-    @Query("limit") limit: number,
-    @Query("search") search: string,
-    @Query("category_id") category_id: number,
-    @Query("group_id") group_id: number
-  ) {
-    return this.service.findAll({
-      page: Number(page) || 1,
-      limit: Number(limit) || 20,
-      search,
-      category_id: category_id ? Number(category_id) : undefined,
-      group_id: group_id ? Number(group_id) : undefined,
-    });
+  async findAll(@Query() query) {
+    return this.service.findAll(query);
   }
 
   @Get(":id")
   async findOne(@Param("id") id: string) {
     return this.service.findOne(Number(id));
-  }
-
-  @Put(":id")
-  async update(
-    @Req() req: Request,
-    @Param("id") id: string,
-    @Body() dto: UpdateGenericDto
-  ) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
-    return this.service.update(Number(id), dto);
-  }
-
-  @Delete(":id")
-  async remove(@Req() req: Request, @Param("id") id: string) {
-    if ((req as any).role !== "admin")
-      throw new ForbiddenException("Admin only");
-    return this.service.remove(Number(id));
   }
 }
