@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prebuild": "chmod +x ./node_modules/.bin/tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:seed": "ts-node prisma/seed.ts"
@@ -15,12 +17,6 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "devDependencies": {
-    "@nestjs/cli": "^11.0.14",
-    "@types/node": "^24.10.1",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.3"
-  },
   "dependencies": {
     "@nestjs/common": "^11.1.9",
     "@nestjs/config": "^4.0.2",
@@ -36,6 +32,9 @@
     "prisma": "^5.14.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    
+    "typescript": "^5.9.3",
+    "ts-node-dev": "^2.0.0"
   }
 }
