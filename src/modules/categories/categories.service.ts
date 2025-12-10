@@ -2,12 +2,26 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { CreateCategoryDto } from "./dto/create-category.dto";
 import { UpdateCategoryDto } from "./dto/update-category.dto";
+import { BadRequestException } from "@nestjs/common";
 
 @Injectable()
 export class CategoriesService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: CreateCategoryDto) {
+    const exists = await this.prisma.category_master.findFirst({
+      where: {
+        category_name: data.category_name,
+        group_id: data.group_id, // category must be unique *inside a group*
+      },
+    });
+
+    if (exists) {
+      throw new BadRequestException(
+        "Category name already exists in this group"
+      );
+    }
+
     return this.prisma.category_master.create({ data });
   }
 
@@ -62,6 +76,23 @@ export class CategoriesService {
 
   async update(id: number, data: UpdateCategoryDto) {
     await this.findOne(id);
+
+    if (data.category_name) {
+      const exists = await this.prisma.category_master.findFirst({
+        where: {
+          category_name: data.category_name,
+          group_id: data.group_id, // must match group
+          NOT: { id }, // ignore current record
+        },
+      });
+
+      if (exists) {
+        throw new BadRequestException(
+          "Category name already exists in this group"
+        );
+      }
+    }
+
     return this.prisma.category_master.update({ where: { id }, data });
   }
 

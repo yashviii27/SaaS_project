@@ -2,12 +2,21 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { CreateGroupDto } from "./dto/create-group.dto";
 import { UpdateGroupDto } from "./dto/update-group.dto";
+import { BadRequestException } from "@nestjs/common";
 
 @Injectable()
 export class GroupsService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: CreateGroupDto) {
+    const exist = await this.prisma.group_master.findFirst({
+      where: { group_name: data.group_name },
+    });
+
+    if (exist) {
+      throw new BadRequestException("Group name already exists");
+    }
+
     return this.prisma.group_master.create({ data });
   }
 
@@ -56,6 +65,20 @@ export class GroupsService {
 
   async update(id: number, data: UpdateGroupDto) {
     await this.findOne(id);
+
+    if (data.group_name) {
+      const exists = await this.prisma.group_master.findFirst({
+        where: {
+          group_name: data.group_name,
+          NOT: { id }, // exclude current record
+        },
+      });
+
+      if (exists) {
+        throw new BadRequestException("Group name already exists");
+      }
+    }
+
     return this.prisma.group_master.update({ where: { id }, data });
   }
 
