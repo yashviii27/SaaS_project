@@ -44,7 +44,6 @@ export class GenericsService {
           required: attr.is_required,
         };
 
-        // Dropdown → attach extra options
         if (attr.input_type === "dropdown") {
           return {
             ...base,
@@ -52,7 +51,6 @@ export class GenericsService {
           };
         }
 
-        // Open input → no extra
         return { ...base, extra: null };
       }),
     };
@@ -89,7 +87,7 @@ export class GenericsService {
       },
     });
 
-    // Create attributes & options
+    // Create attributes & dropdown options
     for (const attr of attributes) {
       const createdAttr = await this.prisma.attribute_master.create({
         data: {
@@ -101,7 +99,7 @@ export class GenericsService {
         },
       });
 
-      // Dropdown options stored in extra
+      // Dropdown → convert values to typed options inside "extra"
       if (attr.input_type === "dropdown") {
         const options = attr.values.map((v) => {
           const raw = v.value;
@@ -202,15 +200,18 @@ export class GenericsService {
   }
 
   // ------------------------------------------------------------
-  // DELETE GENERIC
+  // DELETE GENERIC (safe delete)
   // ------------------------------------------------------------
   async remove(id: number) {
     await this.findOne(id);
 
+    // Delete only attributes — values stored inside "extra"
     await this.prisma.attribute_master.deleteMany({
       where: { generic_id: id },
     });
 
-    return this.prisma.generic_master.delete({ where: { id } });
+    return this.prisma.generic_master.delete({
+      where: { id },
+    });
   }
 }
