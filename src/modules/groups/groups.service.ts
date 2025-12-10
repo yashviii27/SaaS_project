@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { CreateGroupDto } from "./dto/create-group.dto";
 import { UpdateGroupDto } from "./dto/update-group.dto";
@@ -13,10 +13,13 @@ export class GroupsService {
 
   async findAll(params: { page?: number; limit?: number; search?: string }) {
     const { page = 1, limit = 20, search } = params;
+
     const where = search
       ? { group_name: { contains: search, mode: "insensitive" } }
       : {};
+
     const total = await this.prisma.group_master.count({ where });
+
     const data = await this.prisma.group_master.findMany({
       where,
       skip: (page - 1) * limit,
@@ -24,33 +27,32 @@ export class GroupsService {
       orderBy: { id: "asc" },
     });
 
-    // compute category counts
-    const dataWithCounts = await Promise.all(
-      data.map(async (g) => {
-        const count = await this.prisma.category_master.count({
-          where: { group_id: g.id },
-        });
-        return { ...g, category_count: count };
-      })
-    );
-
     return {
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
-      data: dataWithCounts,
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+      data, // Only group info
     };
   }
 
   async findOne(id: number) {
-    const group = await this.prisma.group_master.findUnique({ where: { id } });
-    if (!group) throw new NotFoundException("Group not found");
-    const categories = await this.prisma.category_master.findMany({
-      where: { group_id: id },
-      take: 20,
+    const group = await this.prisma.group_master.findUnique({
+      where: { id },
     });
+
+    if (!group) {
+      throw new NotFoundException("Group not found");
+    }
+
+    // Return only group info (no categories)
     return {
-      ...group,
-      categories_count: categories.length,
-      categories: categories.slice(0, 10),
+      id: group.id,
+      group_name: group.group_name,
+      created_at: group.created_at,
+      updated_at: group.updated_at,
     };
   }
 
@@ -59,8 +61,33 @@ export class GroupsService {
     return this.prisma.group_master.update({ where: { id }, data });
   }
 
+  // --------------------------------------------
+  // ❌ BLOCK DELETE IF GROUP HAS CATEGORIES
+  // --------------------------------------------
   async remove(id: number) {
-    await this.findOne(id);
-    return this.prisma.group_master.delete({ where: { id } });
+    // 1️⃣ Ensure group exists
+    const group = await this.prisma.group_master.findUnique({
+      where: { id },
+    });
+
+    if (!group) {
+      throw new NotFoundException("Group not found");
+    }
+
+    // 2️⃣ Check if any categories are linked to this group
+    const categoryCount = await this.prisma.category_master.count({
+      where: { group_id: id },
+    });
+
+    if (categoryCount > 0) {
+      throw new BadRequestException(
+        "Cannot delete group because it has related categories."
+      );
+    }
+
+    // 3️⃣ Safe to delete (no categories)
+    return this.prisma.group_master.delete({
+      where: { id },
+    });
   }
 }

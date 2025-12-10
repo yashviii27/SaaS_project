@@ -16,10 +16,9 @@ export class GenericsService {
     if (!category_id) throw new BadRequestException("category_id is required");
     if (!Array.isArray(attributes)) throw new BadRequestException("attributes must be an array");
 
-    // ⭐ Allowed input types
+    // Allowed input types
     const allowedInputTypes = ["open", "dropdown"];
 
-    // Validate each attribute before creating anything
     for (const attr of attributes) {
       if (!allowedInputTypes.includes(attr.input_type)) {
         throw new BadRequestException(
@@ -43,13 +42,12 @@ export class GenericsService {
         data: {
           generic_id: generic.id,
           attribute_name: attr.attribute_name,
-          input_type: attr.input_type,   // validated above
+          input_type: attr.input_type,
           data_type: attr.data_type,
           is_required: Boolean(attr.is_required),
         }
       });
 
-      // Handle dropdown values
       if (attr.input_type === "dropdown" && Array.isArray(attr.values)) {
         await this.prisma.attribute_values_master.createMany({
           data: attr.values.map((val) => ({
@@ -61,14 +59,15 @@ export class GenericsService {
     }
 
     return {
-      success: true,
-      message: "Generic created successfully with attributes & values",
+      status: "success",
+      message: "Generic created successfully",
+      timestamp: new Date().toISOString(),
       generic_id: generic.id
     };
   }
 
   // ------------------------------------------------------------
-  // FIND ALL
+  // FIND ALL (PROFESSIONAL FORMAT)
   // ------------------------------------------------------------
   async findAll(params: any) {
     const { page = 1, limit = 20, search, category_id } = params;
@@ -97,14 +96,52 @@ export class GenericsService {
       orderBy: { id: "asc" },
     });
 
+    // ---------- FORMAT RESPONSE PROFESSIONALLY ----------
+    const items = data.map((item) => ({
+      id: item.id,
+      name: item.generic_name,
+      description: item.description,
+
+      group: item.group
+        ? { id: item.group.id, name: item.group.group_name }
+        : null,
+
+      category: item.category
+        ? { id: item.category.id, name: item.category.category_name }
+        : null,
+
+      attributes: item.attributes.map((attr) => ({
+        id: attr.id,
+        name: attr.attribute_name,
+        type: attr.input_type,
+        required: attr.is_required,
+        dataType: attr.data_type,
+        options: attr.values.map((v) => ({
+          id: v.id,
+          label: v.value,
+          value: v.value
+        }))
+      }))
+    }));
+
     return {
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
-      data,
+      status: "success",
+      message: "Generics fetched successfully",
+      timestamp: new Date().toISOString(),
+
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit)
+      },
+
+      items
     };
   }
 
   // ------------------------------------------------------------
-  // FIND ONE
+  // FIND ONE (PROFESSIONAL FORMAT)
   // ------------------------------------------------------------
   async findOne(id: number) {
     const item = await this.prisma.generic_master.findUnique({
@@ -118,7 +155,38 @@ export class GenericsService {
 
     if (!item) throw new NotFoundException("Generic not found");
 
-    return item;
+    return {
+      status: "success",
+      message: "Generic fetched successfully",
+      timestamp: new Date().toISOString(),
+
+      item: {
+        id: item.id,
+        name: item.generic_name,
+        description: item.description,
+
+        group: item.group
+          ? { id: item.group.id, name: item.group.group_name }
+          : null,
+
+        category: item.category
+          ? { id: item.category.id, name: item.category.category_name }
+          : null,
+
+        attributes: item.attributes.map((attr) => ({
+          id: attr.id,
+          name: attr.attribute_name,
+          type: attr.input_type,
+          required: attr.is_required,
+          dataType: attr.data_type,
+          options: attr.values.map((v) => ({
+            id: v.id,
+            label: v.value,
+            value: v.value
+          }))
+        }))
+      }
+    };
   }
 
   // ------------------------------------------------------------
@@ -137,28 +205,32 @@ export class GenericsService {
   }
 
   // ------------------------------------------------------------
-  // DELETE
+  // DELETE (with protection)
   // ------------------------------------------------------------
-  async remove(id: number) {
-    await this.findOne(id);
+ async remove(id: number) {
+  // 1️⃣ Check if generic exists
+  await this.findOne(id);
 
-    // delete values
-    const attrs = await this.prisma.attribute_master.findMany({
-      where: { generic_id: id }
+  // 2️⃣ Fetch all attributes for this generic
+  const attrs = await this.prisma.attribute_master.findMany({
+    where: { generic_id: id },
+  });
+
+  // 3️⃣ Delete all attribute values
+  for (const attr of attrs) {
+    await this.prisma.attribute_values_master.deleteMany({
+      where: { attribute_id: attr.id },
     });
-
-    for (const attr of attrs) {
-      await this.prisma.attribute_values_master.deleteMany({
-        where: { attribute_id: attr.id }
-      });
-    }
-
-    // delete attributes
-    await this.prisma.attribute_master.deleteMany({
-      where: { generic_id: id }
-    });
-
-    // delete generic
-    return this.prisma.generic_master.delete({ where: { id } });
   }
+
+  // 4️⃣ Delete attributes of this generic
+  await this.prisma.attribute_master.deleteMany({
+    where: { generic_id: id },
+  });
+
+  // 5️⃣ Delete the generic itself
+  return this.prisma.generic_master.delete({
+    where: { id },
+  });
+}
 }
