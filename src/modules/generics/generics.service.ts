@@ -78,95 +78,125 @@ export class GenericsService {
     });
 
     // Create attributes & store extra metadata
-    for (const attr of attributes) {
-      const createdAttr = await this.prisma.attribute_master.create({
-        data: {
-          generic_id: generic.id,
-          attribute_name: attr.attribute_name,
-          input_type: attr.input_type,
-          data_type: attr.data_type,
-          is_required: attr.is_required,
-        },
-      });
+   for (const attr of attributes) {
+  const createdAttr = await this.prisma.attribute_master.create({
+    data: {
+      generic_id: generic.id,
+      attribute_name: attr.attribute_name,
+      input_type: attr.input_type,
+      data_type: attr.data_type,
+      is_required: attr.is_required,
+    },
+  });
 
-      // ------------------------------
-      // DROPDOWN VALUES
-      // ------------------------------
-      if (attr.input_type === "dropdown") {
-        const options = attr.values.map((v) => {
-          const raw = v.value;
-          try {
-            return JSON.parse(raw);
-          } catch {
-            if (raw === "true") return true;
-            if (raw === "false") return false;
-            if (!isNaN(raw) && raw.trim() !== "") return Number(raw);
-            return raw;
-          }
-        });
+  // Helper to insert values
+  const saveValue = async (val: any) => {
+    await this.prisma.attribute_values_master.create({
+      data: {
+        attribute_id: createdAttr.id,
+        value: val,
+      },
+    });
+  };
 
-        await this.prisma.attribute_master.update({
-          where: { id: createdAttr.id },
-          data: { extra: { options } },
-        });
+  // -----------------------------
+  // DROPDOWN VALUES
+  // -----------------------------
+  if (attr.input_type === "dropdown") {
+    const finalValues = [];
+
+    for (const v of attr.values) {
+      let parsedValue = v.value;
+
+      try {
+        parsedValue = JSON.parse(v.value);
+      } catch {
+        if (v.value === "true") parsedValue = true;
+        else if (v.value === "false") parsedValue = false;
+        else if (!isNaN(v.value)) parsedValue = Number(v.value);
       }
 
-      // ------------------------------
-      // RANGE NUMBER FIELD
-      // ------------------------------
-      if (attr.data_type === "number" && attr.numberType === "range") {
-        await this.prisma.attribute_master.update({
-          where: { id: createdAttr.id },
-          data: {
-            extra: {
-              type: "range",
-              min: attr.min ?? null,
-              max: attr.max ?? null,
-            },
-          },
-        });
-      }
-
-      // ------------------------------
-      // SINGLE NUMBER FIELD
-      // ------------------------------
-      if (attr.data_type === "number" && attr.numberType === "single") {
-        await this.prisma.attribute_master.update({
-          where: { id: createdAttr.id },
-          data: {
-            extra: {
-              type: "single",
-            },
-          },
-        });
-      }
-
-      // ------------------------------
-      // BOOLEAN FIELD
-      // ------------------------------
-      if (attr.data_type === "boolean") {
-        await this.prisma.attribute_master.update({
-          where: { id: createdAttr.id },
-          data: {
-            extra: { type: "boolean" },
-          },
-        });
-      }
-
-      // ------------------------------
-      // DATE FIELD
-      // ------------------------------
-      if (attr.data_type === "date") {
-        await this.prisma.attribute_master.update({
-          where: { id: createdAttr.id },
-          data: {
-            extra: {
-              format: attr.format ?? "YYYY-MM-DD",
-            },
-          },
-        });
-      }
+      // Save into values table
+      await saveValue(parsedValue);
+      finalValues.push(parsedValue);
     }
+
+    await this.prisma.attribute_master.update({
+      where: { id: createdAttr.id },
+      data: { extra: { options: finalValues } },
+    });
+  }
+
+  // -----------------------------
+  // OPEN FIELD (STRING / BOOLEAN / DATE)
+  // -----------------------------
+  if (attr.input_type === "open" && attr.default) {
+    await saveValue(attr.default);
+  }
+
+  // -----------------------------
+  // NUMBER FIELD: SINGLE VALUE
+  // -----------------------------
+  if (attr.data_type === "number" && attr.numberType === "single") {
+    if (attr.default != null) {
+      await saveValue(Number(attr.default));
+    }
+
+    await this.prisma.attribute_master.update({
+      where: { id: createdAttr.id },
+      data: { extra: { type: "single" } },
+    });
+  }
+
+  // -----------------------------
+  // NUMBER FIELD: RANGE
+  // -----------------------------
+  if (attr.data_type === "number" && attr.numberType === "range") {
+    const rangeObj = { min: attr.min ?? null, max: attr.max ?? null };
+
+    await saveValue(rangeObj); // Store JSON value
+
+    await this.prisma.attribute_master.update({
+      where: { id: createdAttr.id },
+      data: {
+        extra: {
+          type: "range",
+          ...rangeObj,
+        },
+      },
+    });
+  }
+
+  // -----------------------------
+  // BOOLEAN FIELD
+  // -----------------------------
+  if (attr.data_type === "boolean") {
+    await saveValue(true);
+    await saveValue(false);
+
+    await this.prisma.attribute_master.update({
+      where: { id: createdAttr.id },
+      data: {
+        extra: { type: "boolean" },
+      },
+    });
+  }
+
+  // -----------------------------
+  // DATE FIELD
+  // -----------------------------
+  if (attr.data_type === "date") {
+    const format = attr.format ?? "YYYY-MM-DD";
+
+    await saveValue({ format });
+
+    await this.prisma.attribute_master.update({
+      where: { id: createdAttr.id },
+      data: { extra: { format } },
+    });
+  }
+}
+
 
     return {
       success: true,

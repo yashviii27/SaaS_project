@@ -8,19 +8,11 @@ import {
 } from "class-validator";
 
 export class ProductAttributeInput {
-  @IsInt()
-  attribute_id: number;
-
-  @IsOptional()
-  @IsInt()
-  value_id?: number;
-
-  @IsOptional()
   @IsString()
-  value_text?: string;
+  name: string;     // <── attribute_name instead of attribute_id
 
   @IsOptional()
-  value_json?: any;
+  value: any;       // <── can be string, number, boolean, object
 }
 
 export class CreateProductDto {
@@ -28,18 +20,16 @@ export class CreateProductDto {
   @IsNotEmpty()
   product_name: string;
 
-  @IsInt()
-  generic_id: number;
+  @IsString()
+  brand: string;     // <── name, not ID
 
-  @IsInt()
-  brand_id: number;
+  @IsString()
+  generic: string;   // <── name, not ID
 
   @IsOptional()
-  @IsInt()
   qty?: number;
 
   @IsOptional()
-  @IsNumber()
   rate?: number;
 
   @IsOptional()

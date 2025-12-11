@@ -2,7 +2,7 @@ import { Module, MiddlewareConsumer } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
 import { PrismaService } from "./common/prisma.service";
-import { ApiKeyMiddleware } from "./common/api-key.middleware";
+// import { ApiKeyMiddleware } from "./common/api-key.middleware";
 
 // IMPORT ALL MODULES
 import { GroupsModule } from "./modules/groups/groups.module";

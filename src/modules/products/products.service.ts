@@ -1,9 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
-import {
-  CreateProductDto,
-  ProductAttributeInput,
-} from "./dto/create-product.dto";
+import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { Response } from "express";
 
@@ -47,10 +44,9 @@ export class ProductsService {
         dataType: attr.attribute.data_type,
         required: attr.attribute.is_required,
 
-        // final clean value
         value:
           attr.value_json !== null
-            ? attr.value_json // JSON / Range
+            ? attr.value_json
             : attr.attribute.data_type === "number"
             ? Number(attr.value_text)
             : attr.attribute.data_type === "boolean"
@@ -61,35 +57,104 @@ export class ProductsService {
   }
 
   // ------------------------------------------------------------
+  // NORMALIZE ATTRIBUTE VALUE
+  // ------------------------------------------------------------
+  private normalizeAttributeValue(value: any, meta: any) {
+    // JSON / range
+    if (meta.data_type === "number" && typeof value === "object") {
+      return { value_id: null, value_text: null, value_json: value };
+    }
+
+    // dropdown → value_id
+    if (meta.input_type === "dropdown") {
+      return { value_id: Number(value), value_text: null, value_json: null };
+    }
+
+    // boolean
+    if (meta.data_type === "boolean") {
+      return {
+        value_id: null,
+        value_text: value ? "true" : "false",
+        value_json: null,
+      };
+    }
+
+    // number
+    if (meta.data_type === "number") {
+      return { value_id: null, value_text: String(value), value_json: null };
+    }
+
+    // date
+    if (meta.data_type === "date") {
+      return { value_id: null, value_text: value, value_json: null };
+    }
+
+    // default text
+    return { value_id: null, value_text: String(value), value_json: null };
+  }
+
+  // ------------------------------------------------------------
   // CREATE PRODUCT
   // ------------------------------------------------------------
   async create(data: CreateProductDto) {
-    const { attributes, ...productData } = data as any;
+    const { attributes } = data;
+
+    // Brand
+    const brand = await this.prisma.brand_master.findFirst({
+      where: { brand_name: data.brand },
+    });
+    if (!brand) throw new NotFoundException(`Brand '${data.brand}' not found`);
+
+    // Generic
+    const generic = await this.prisma.generic_master.findFirst({
+      where: { generic_name: data.generic },
+    });
+    if (!generic)
+      throw new NotFoundException(`Generic '${data.generic}' not found`);
+
+    // Product create
     const created = await this.prisma.product_master.create({
-      data: productData,
+      data: {
+        product_name: data.product_name,
+        brand_id: brand.id,
+        generic_id: generic.id,
+        qty: data.qty || 0,
+        rate: data.rate || 0,
+        sku: data.sku || null,
+        extra: data.extra || null,
+      },
     });
 
+    // Create attributes
     if (attributes?.length) {
-      await Promise.all(
-        attributes.map((a: ProductAttributeInput) =>
-          this.prisma.product_attribute_values.create({
-            data: {
-              product_id: created.id,
-              attribute_id: a.attribute_id,
-              value_id: a.value_id || null,
-              value_text: a.value_text || null,
-              value_json: a.value_json || null,
-            },
-          })
-        )
-      );
+      for (const attr of attributes) {
+        const meta = await this.prisma.attribute_master.findFirst({
+          where: {
+            generic_id: generic.id,
+            attribute_name: attr.name,
+          },
+        });
+
+        if (!meta)
+          throw new NotFoundException(`Attribute '${attr.name}' not found`);
+
+        const normalized = this.normalizeAttributeValue(attr.value, meta);
+
+        await this.prisma.product_attribute_values.create({
+          data: {
+            product_id: created.id,
+            attribute_id: meta.id,
+            ...normalized,
+          },
+        });
+      }
     }
 
     return this.findOne(created.id);
   }
 
   // ------------------------------------------------------------
-  // FIND ALL PRODUCTS + CLEAN FORMAT
+  // FIND ALL
   // ------------------------------------------------------------
   async findAll(query: any) {
     const {
@@ -107,27 +172,31 @@ export class ProductsService {
 
     if (brand_id) where.brand_id = Number(brand_id);
     if (generic_id) where.generic_id = Number(generic_id);
+
     if (group_id)
       where.generic = { ...(where.generic || {}), group_id: Number(group_id) };
+
     if (category_id)
       where.generic = {
         ...(where.generic || {}),
         category_id: Number(category_id),
       };
-    if (search) where.product_name = { contains: search, mode: "insensitive" };
 
-    // Attribute filters
+    if (search)
+      where.product_name = { contains: search, mode: "insensitive" };
+
+    // Attribute filter
     if (attributes) {
-      let attrs;
+      let attrsParsed;
       try {
-        attrs =
+        attrsParsed =
           typeof attributes === "string" ? JSON.parse(attributes) : attributes;
       } catch {
-        attrs = null;
+        attrsParsed = null;
       }
 
-      if (Array.isArray(attrs) && attrs.length) {
-        where.AND = attrs.map((a) => ({
+      if (Array.isArray(attrsParsed) && attrsParsed.length) {
+        where.AND = attrsParsed.map((a) => ({
           attributes: {
             some: Object.fromEntries(
               Object.entries(a).map(([k, v]) => [
@@ -148,17 +217,11 @@ export class ProductsService {
       take: Number(limit),
       include: {
         brand: true,
-        generic: {
-          include: { group: true, category: true },
-        },
-        attributes: {
-          include: { attribute: true },
-        },
+        generic: { include: { group: true, category: true } },
+        attributes: { include: { attribute: true } },
       },
       orderBy: { id: "desc" },
     });
-
-    const formatted = data.map((p) => this.formatProduct(p));
 
     return {
       meta: {
@@ -167,27 +230,20 @@ export class ProductsService {
         limit: Number(limit),
         pages: Math.ceil(total / limit),
       },
-      data: formatted,
+      data: data.map((p) => this.formatProduct(p)),
     };
   }
 
   // ------------------------------------------------------------
-  // FIND ONE PRODUCT + CLEAN FORMAT
+  // FIND ONE
   // ------------------------------------------------------------
   async findOne(id: number) {
     const p = await this.prisma.product_master.findUnique({
       where: { id },
       include: {
         brand: true,
-        generic: {
-          include: {
-            group: true,
-            category: true,
-          },
-        },
-        attributes: {
-          include: { attribute: true },
-        },
+        generic: { include: { group: true, category: true } },
+        attributes: { include: { attribute: true } },
       },
     });
 
@@ -196,43 +252,98 @@ export class ProductsService {
   }
 
   // ------------------------------------------------------------
-  // UPDATE PRODUCT
+  // UPDATE
   // ------------------------------------------------------------
   async update(id: number, data: UpdateProductDto) {
-    await this.findOne(id);
+  await this.findOne(id);
 
-    const { attributes, ...productData } = data as any;
+  const { attributes, brand, generic, ...productData } = data;
 
-    await this.prisma.product_master.update({
-      where: { id },
-      data: productData,
+  const updateData: any = { ...productData };
+
+  // -------------------------------------------------------
+  // 1️⃣ If brand name is sent → convert to brand_id
+  // -------------------------------------------------------
+  if (brand) {
+    const brandRecord = await this.prisma.brand_master.findFirst({
+      where: { brand_name: brand },
     });
 
-    if (attributes) {
-      await this.prisma.product_attribute_values.deleteMany({
-        where: { product_id: id },
-      });
-
-      await Promise.all(
-        (attributes as ProductAttributeInput[]).map((a) =>
-          this.prisma.product_attribute_values.create({
-            data: {
-              product_id: id,
-              attribute_id: a.attribute_id,
-              value_id: a.value_id || null,
-              value_text: a.value_text || null,
-              value_json: a.value_json || null,
-            },
-          })
-        )
-      );
+    if (!brandRecord) {
+      throw new NotFoundException(`Brand '${brand}' not found`);
     }
 
-    return this.findOne(id);
+    updateData.brand_id = brandRecord.id;
   }
 
+  // -------------------------------------------------------
+  // 2️⃣ If generic name is sent → convert to generic_id
+  // -------------------------------------------------------
+  if (generic) {
+    const genericRecord = await this.prisma.generic_master.findFirst({
+      where: { generic_name: generic },
+    });
+
+    if (!genericRecord) {
+      throw new NotFoundException(`Generic '${generic}' not found`);
+    }
+
+    updateData.generic_id = genericRecord.id;
+  }
+
+  // -------------------------------------------------------
+  // 3️⃣ Update product without wrong fields
+  // -------------------------------------------------------
+  await this.prisma.product_master.update({
+    where: { id },
+    data: updateData,
+  });
+
+  // -------------------------------------------------------
+  // 4️⃣ Update attributes using name/value logic
+  // -------------------------------------------------------
+  if (attributes?.length) {
+    await this.prisma.product_attribute_values.deleteMany({
+      where: { product_id: id },
+    });
+
+    // find product again to get generic_id
+    const product = await this.prisma.product_master.findUnique({
+      where: { id },
+    });
+
+    for (const attr of attributes) {
+      const meta = await this.prisma.attribute_master.findFirst({
+        where: {
+          generic_id: product.generic_id,
+          attribute_name: attr.name,
+        },
+      });
+
+      if (!meta)
+        throw new NotFoundException(
+          `Attribute '${attr.name}' not found for this generic`
+        );
+
+      const normalized = this.normalizeAttributeValue(attr.value, meta);
+
+      await this.prisma.product_attribute_values.create({
+        data: {
+          product_id: id,
+          attribute_id: meta.id,
+          ...normalized,
+        },
+      });
+    }
+  }
+
+  return this.findOne(id);
+}
+
+
+
   // ------------------------------------------------------------
-  // DELETE PRODUCT
+  // DELETE
   // ------------------------------------------------------------
   async remove(id: number) {
     await this.findOne(id);

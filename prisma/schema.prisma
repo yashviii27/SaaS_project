@@ -84,7 +84,7 @@ model attribute_master {
 model attribute_values_master {
   id           Int              @id @default(autoincrement())
   attribute_id Int
-  value        String
+  value        Json?
   value_key    String?
   attribute    attribute_master @relation(fields: [attribute_id], references: [id])
   created_at   DateTime         @default(now())
