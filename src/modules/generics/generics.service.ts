@@ -17,7 +17,6 @@ export class GenericsService {
       id: generic.id,
       name: generic.generic_name,
 
-      // Include both id + name for group
       group: generic.group
         ? {
             id: generic.group.id,
@@ -25,7 +24,6 @@ export class GenericsService {
           }
         : null,
 
-      // Include both id + name for category
       category: generic.category
         ? {
             id: generic.category.id,
@@ -36,22 +34,14 @@ export class GenericsService {
       description: generic.description ?? null,
 
       attributes: generic.attributes.map((attr) => {
-        const base = {
+        return {
           id: attr.id,
           name: attr.attribute_name,
           type: attr.input_type,
           dataType: attr.data_type,
           required: attr.is_required,
+          extra: attr.extra ?? null, // <-- updated (now returns extra for all)
         };
-
-        if (attr.input_type === "dropdown") {
-          return {
-            ...base,
-            extra: attr.extra ?? { options: [] },
-          };
-        }
-
-        return { ...base, extra: null };
       }),
     };
   }
@@ -87,7 +77,7 @@ export class GenericsService {
       },
     });
 
-    // Create attributes & dropdown options
+    // Create attributes & store extra metadata
     for (const attr of attributes) {
       const createdAttr = await this.prisma.attribute_master.create({
         data: {
@@ -99,11 +89,12 @@ export class GenericsService {
         },
       });
 
-      // Dropdown → convert values to typed options inside "extra"
+      // ------------------------------
+      // DROPDOWN VALUES
+      // ------------------------------
       if (attr.input_type === "dropdown") {
         const options = attr.values.map((v) => {
           const raw = v.value;
-
           try {
             return JSON.parse(raw);
           } catch {
@@ -117,6 +108,62 @@ export class GenericsService {
         await this.prisma.attribute_master.update({
           where: { id: createdAttr.id },
           data: { extra: { options } },
+        });
+      }
+
+      // ------------------------------
+      // RANGE NUMBER FIELD
+      // ------------------------------
+      if (attr.data_type === "number" && attr.numberType === "range") {
+        await this.prisma.attribute_master.update({
+          where: { id: createdAttr.id },
+          data: {
+            extra: {
+              type: "range",
+              min: attr.min ?? null,
+              max: attr.max ?? null,
+            },
+          },
+        });
+      }
+
+      // ------------------------------
+      // SINGLE NUMBER FIELD
+      // ------------------------------
+      if (attr.data_type === "number" && attr.numberType === "single") {
+        await this.prisma.attribute_master.update({
+          where: { id: createdAttr.id },
+          data: {
+            extra: {
+              type: "single",
+            },
+          },
+        });
+      }
+
+      // ------------------------------
+      // BOOLEAN FIELD
+      // ------------------------------
+      if (attr.data_type === "boolean") {
+        await this.prisma.attribute_master.update({
+          where: { id: createdAttr.id },
+          data: {
+            extra: { type: "boolean" },
+          },
+        });
+      }
+
+      // ------------------------------
+      // DATE FIELD
+      // ------------------------------
+      if (attr.data_type === "date") {
+        await this.prisma.attribute_master.update({
+          where: { id: createdAttr.id },
+          data: {
+            extra: {
+              format: attr.format ?? "YYYY-MM-DD",
+            },
+          },
         });
       }
     }
@@ -205,7 +252,6 @@ export class GenericsService {
   async remove(id: number) {
     await this.findOne(id);
 
-    // Delete only attributes — values stored inside "extra"
     await this.prisma.attribute_master.deleteMany({
       where: { generic_id: id },
     });
