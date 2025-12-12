@@ -3,16 +3,15 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
-  "build": "tsc -p tsconfig.build.json",
-  "start": "node dist/main.js",
-  "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-  "start:prod": "node dist/main.js",
-  "prisma:generate": "prisma generate",
-  "prisma:migrate": "prisma migrate dev --name init",
-  "prisma:seed": "ts-node prisma/seed.ts"
-},
-
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "start:prod": "node dist/main.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:seed": "ts-node prisma/seed.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -32,8 +31,9 @@
     "prisma": "^5.14.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "swagger-ui-express": "^5.0.1",
-    
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
     "typescript": "^5.9.3",
     "ts-node-dev": "^2.0.0"
   }
