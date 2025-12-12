@@ -1,13 +1,19 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { CreateGroupDto } from "./dto/create-group.dto";
 import { UpdateGroupDto } from "./dto/update-group.dto";
-import { BadRequestException } from "@nestjs/common";
 
 @Injectable()
 export class GroupsService {
   constructor(private prisma: PrismaService) {}
 
+  // --------------------------------------------
+  // CREATE GROUP
+  // --------------------------------------------
   async create(data: CreateGroupDto) {
     const exist = await this.prisma.group_master.findFirst({
       where: { group_name: data.group_name },
@@ -17,9 +23,16 @@ export class GroupsService {
       throw new BadRequestException("Group name already exists");
     }
 
-    return this.prisma.group_master.create({ data });
+    return this.prisma.group_master.create({
+      data: {
+        group_name: data.group_name,
+      },
+    });
   }
 
+  // --------------------------------------------
+  // FIND ALL
+  // --------------------------------------------
   async findAll(params: { page?: number; limit?: number; search?: string }) {
     const { page = 1, limit = 20, search } = params;
 
@@ -43,11 +56,14 @@ export class GroupsService {
         limit,
         pages: Math.ceil(total / limit),
       },
-      data, // Only group info
+      data,
     };
   }
 
-  async findOne(id: number) {
+  // --------------------------------------------
+  // FIND ONE
+  // --------------------------------------------
+  async findOne(id: number): Promise<any> {
     const group = await this.prisma.group_master.findUnique({
       where: { id },
     });
@@ -56,7 +72,6 @@ export class GroupsService {
       throw new NotFoundException("Group not found");
     }
 
-    // Return only group info (no categories)
     return {
       id: group.id,
       group_name: group.group_name,
@@ -65,6 +80,9 @@ export class GroupsService {
     };
   }
 
+  // --------------------------------------------
+  // UPDATE GROUP
+  // --------------------------------------------
   async update(id: number, data: UpdateGroupDto) {
     await this.findOne(id);
 
@@ -72,7 +90,7 @@ export class GroupsService {
       const exists = await this.prisma.group_master.findFirst({
         where: {
           group_name: data.group_name,
-          NOT: { id }, // exclude current record
+          NOT: { id },
         },
       });
 
@@ -81,14 +99,19 @@ export class GroupsService {
       }
     }
 
-    return this.prisma.group_master.update({ where: { id }, data });
+    const cleanData: any = {};
+    if (data.group_name) cleanData.group_name = data.group_name;
+
+    return this.prisma.group_master.update({
+      where: { id },
+      data: cleanData,
+    });
   }
 
   // --------------------------------------------
-  // ❌ BLOCK DELETE IF GROUP HAS CATEGORIES
+  // DELETE GROUP (Block only if generics belong)
   // --------------------------------------------
   async remove(id: number) {
-    // 1️⃣ Ensure group exists
     const group = await this.prisma.group_master.findUnique({
       where: { id },
     });
@@ -97,18 +120,17 @@ export class GroupsService {
       throw new NotFoundException("Group not found");
     }
 
-    // 2️⃣ Check if any categories are linked to this group
-    const categoryCount = await this.prisma.category_master.count({
+    // Check generics linked to this group
+    const genericsCount = await this.prisma.generic_master.count({
       where: { group_id: id },
     });
 
-    if (categoryCount > 0) {
+    if (genericsCount > 0) {
       throw new BadRequestException(
-        "Cannot delete group because it has related categories."
+        "Cannot delete group because it has related generics."
       );
     }
 
-    // 3️⃣ Safe to delete (no categories)
     return this.prisma.group_master.delete({
       where: { id },
     });
