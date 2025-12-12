@@ -30,13 +30,11 @@ export class CategoriesController {
   async findAll(
     @Query("page") page: number,
     @Query("limit") limit: number,
-    @Query("group_id") group_id: number,
     @Query("search") search: string
   ) {
     return this.service.findAll({
       page: Number(page) || 1,
       limit: Number(limit) || 20,
-      group_id: group_id ? Number(group_id) : undefined,
       search,
     });
   }

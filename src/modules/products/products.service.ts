@@ -1,15 +1,18 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
-import { Response } from "express";
 
 @Injectable()
 export class ProductsService {
   constructor(private prisma: PrismaService) {}
 
   // ------------------------------------------------------------
-  // FORMAT PRODUCT — CLEAN UI FRIENDLY FORMAT
+  // FORMAT PRODUCT
   // ------------------------------------------------------------
   private formatProduct(p: any) {
     if (!p) return null;
@@ -20,6 +23,7 @@ export class ProductsService {
       sku: p.sku,
       qty: p.qty,
       rate: p.rate,
+      extra: p.extra || {},
 
       brand: p.brand ? { id: p.brand.id, name: p.brand.brand_name } : null,
 
@@ -35,122 +39,86 @@ export class ProductsService {
         ? { id: p.generic.category.id, name: p.generic.category.category_name }
         : null,
 
-      extra: p.extra || {},
-
-      attributes: p.attributes.map((attr) => ({
-        id: attr.attribute_id,
-        name: attr.attribute.attribute_name,
-        type: attr.attribute.input_type,
-        dataType: attr.attribute.data_type,
-        required: attr.attribute.is_required,
-
+      attributes: p.attributes.map((a) => ({
+        id: a.attribute_id,
+        name: a.attribute.attribute_name,
+        type: a.attribute.input_type,
+        dataType: a.attribute.data_type,
+        required: a.attribute.is_required,
         value:
-          attr.value_json !== null
-            ? attr.value_json
-            : attr.attribute.data_type === "number"
-            ? Number(attr.value_text)
-            : attr.attribute.data_type === "boolean"
-            ? attr.value_text === "true"
-            : attr.value_text,
+          a.value_json !== null
+            ? a.value_json
+            : a.value_text
+            ? a.value_text
+            : null,
       })),
     };
-  }
-
-  // ------------------------------------------------------------
-  // NORMALIZE ATTRIBUTE VALUE
-  // ------------------------------------------------------------
-  private normalizeAttributeValue(value: any, meta: any) {
-    // JSON / range
-    if (meta.data_type === "number" && typeof value === "object") {
-      return { value_id: null, value_text: null, value_json: value };
-    }
-
-    // dropdown → value_id
-    if (meta.input_type === "dropdown") {
-      return { value_id: Number(value), value_text: null, value_json: null };
-    }
-
-    // boolean
-    if (meta.data_type === "boolean") {
-      return {
-        value_id: null,
-        value_text: value ? "true" : "false",
-        value_json: null,
-      };
-    }
-
-    // number
-    if (meta.data_type === "number") {
-      return { value_id: null, value_text: String(value), value_json: null };
-    }
-
-    // date
-    if (meta.data_type === "date") {
-      return { value_id: null, value_text: value, value_json: null };
-    }
-
-    // default text
-    return { value_id: null, value_text: String(value), value_json: null };
   }
 
   // ------------------------------------------------------------
   // CREATE PRODUCT
   // ------------------------------------------------------------
   async create(data: CreateProductDto) {
-    const { attributes } = data;
+    const { brand_id, generic_id, attributes } = data;
 
-    // Brand
-    const brand = await this.prisma.brand_master.findFirst({
-      where: { brand_name: data.brand },
+    // Validate brand ID
+    const brand = await this.prisma.brand_master.findUnique({
+      where: { id: brand_id },
     });
-    if (!brand) throw new NotFoundException(`Brand '${data.brand}' not found`);
+    if (!brand)
+      throw new NotFoundException(`Brand with ID '${brand_id}' not found`);
 
-    // Generic
-    const generic = await this.prisma.generic_master.findFirst({
-      where: { generic_name: data.generic },
+    // Validate generic ID
+    const generic = await this.prisma.generic_master.findUnique({
+      where: { id: generic_id },
     });
     if (!generic)
-      throw new NotFoundException(`Generic '${data.generic}' not found`);
+      throw new NotFoundException(`Generic with ID '${generic_id}' not found`);
 
-    // Product create
-    const created = await this.prisma.product_master.create({
+    // Create basic product
+    const product = await this.prisma.product_master.create({
       data: {
         product_name: data.product_name,
-        brand_id: brand.id,
-        generic_id: generic.id,
-        qty: data.qty || 0,
-        rate: data.rate || 0,
-        sku: data.sku || null,
-        extra: data.extra || null,
+        brand_id,
+        generic_id,
+        qty: data.qty ?? 0,
+        rate: data.rate ?? 0,
+        sku: data.sku ?? null,
+        extra: data.extra ?? null,
       },
     });
 
-    // Create attributes
+    // Insert attributes
     if (attributes?.length) {
       for (const attr of attributes) {
-        const meta = await this.prisma.attribute_master.findFirst({
-          where: {
-            generic_id: generic.id,
-            attribute_name: attr.name,
-          },
+        // Validate attribute
+        const meta = await this.prisma.attribute_master.findUnique({
+          where: { id: attr.attribute_id },
         });
 
         if (!meta)
-          throw new NotFoundException(`Attribute '${attr.name}' not found`);
+          throw new NotFoundException(
+            `Attribute ID '${attr.attribute_id}' not found`
+          );
 
-        const normalized = this.normalizeAttributeValue(attr.value, meta);
+        if (meta.generic_id !== generic_id)
+          throw new BadRequestException(
+            `Attribute '${attr.attribute_id}' does not belong to this generic`
+          );
 
         await this.prisma.product_attribute_values.create({
           data: {
-            product_id: created.id,
-            attribute_id: meta.id,
-            ...normalized,
+            product_id: product.id,
+            attribute_id: attr.attribute_id,
+            value_text: attr.value_text ?? null,
+            value_json: attr.value_json ?? null,
+            value_id: null,
           },
         });
       }
     }
 
-    return this.findOne(created.id);
+    return this.findOne(product.id);
   }
 
   // ------------------------------------------------------------
@@ -165,7 +133,6 @@ export class ProductsService {
       category_id,
       group_id,
       search,
-      attributes,
     } = query;
 
     const where: any = {};
@@ -183,38 +150,17 @@ export class ProductsService {
       };
 
     if (search)
-      where.product_name = { contains: search, mode: "insensitive" };
-
-    // Attribute filter
-    if (attributes) {
-      let attrsParsed;
-      try {
-        attrsParsed =
-          typeof attributes === "string" ? JSON.parse(attributes) : attributes;
-      } catch {
-        attrsParsed = null;
-      }
-
-      if (Array.isArray(attrsParsed) && attrsParsed.length) {
-        where.AND = attrsParsed.map((a) => ({
-          attributes: {
-            some: Object.fromEntries(
-              Object.entries(a).map(([k, v]) => [
-                k,
-                typeof v === "string" ? { contains: v } : v,
-              ])
-            ),
-          },
-        }));
-      }
-    }
+      where.product_name = {
+        contains: search,
+        mode: "insensitive",
+      };
 
     const total = await this.prisma.product_master.count({ where });
 
-    const data = await this.prisma.product_master.findMany({
+    const rows = await this.prisma.product_master.findMany({
       where,
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
+      skip: (page - 1) * limit,
+      take: limit,
       include: {
         brand: true,
         generic: { include: { group: true, category: true } },
@@ -226,11 +172,11 @@ export class ProductsService {
     return {
       meta: {
         total,
-        page: Number(page),
-        limit: Number(limit),
+        page,
+        limit,
         pages: Math.ceil(total / limit),
       },
-      data: data.map((p) => this.formatProduct(p)),
+      data: rows.map((p) => this.formatProduct(p)),
     };
   }
 
@@ -248,102 +194,76 @@ export class ProductsService {
     });
 
     if (!p) throw new NotFoundException("Product not found");
+
     return this.formatProduct(p);
   }
 
   // ------------------------------------------------------------
-  // UPDATE
+  // UPDATE PRODUCT
   // ------------------------------------------------------------
   async update(id: number, data: UpdateProductDto) {
-  await this.findOne(id);
+    await this.findOne(id);
 
-  const { attributes, brand, generic, ...productData } = data;
+    const updateData: any = {};
 
-  const updateData: any = { ...productData };
+    if (data.product_name) updateData.product_name = data.product_name;
+    if (data.qty !== undefined) updateData.qty = data.qty;
+    if (data.rate !== undefined) updateData.rate = data.rate;
+    if (data.sku !== undefined) updateData.sku = data.sku;
+    if (data.extra !== undefined) updateData.extra = data.extra;
 
-  // -------------------------------------------------------
-  // 1️⃣ If brand name is sent → convert to brand_id
-  // -------------------------------------------------------
-  if (brand) {
-    const brandRecord = await this.prisma.brand_master.findFirst({
-      where: { brand_name: brand },
-    });
-
-    if (!brandRecord) {
-      throw new NotFoundException(`Brand '${brand}' not found`);
-    }
-
-    updateData.brand_id = brandRecord.id;
-  }
-
-  // -------------------------------------------------------
-  // 2️⃣ If generic name is sent → convert to generic_id
-  // -------------------------------------------------------
-  if (generic) {
-    const genericRecord = await this.prisma.generic_master.findFirst({
-      where: { generic_name: generic },
-    });
-
-    if (!genericRecord) {
-      throw new NotFoundException(`Generic '${generic}' not found`);
-    }
-
-    updateData.generic_id = genericRecord.id;
-  }
-
-  // -------------------------------------------------------
-  // 3️⃣ Update product without wrong fields
-  // -------------------------------------------------------
-  await this.prisma.product_master.update({
-    where: { id },
-    data: updateData,
-  });
-
-  // -------------------------------------------------------
-  // 4️⃣ Update attributes using name/value logic
-  // -------------------------------------------------------
-  if (attributes?.length) {
-    await this.prisma.product_attribute_values.deleteMany({
-      where: { product_id: id },
-    });
-
-    // find product again to get generic_id
-    const product = await this.prisma.product_master.findUnique({
-      where: { id },
-    });
-
-    for (const attr of attributes) {
-      const meta = await this.prisma.attribute_master.findFirst({
-        where: {
-          generic_id: product.generic_id,
-          attribute_name: attr.name,
-        },
+    // Update brand_id
+    if (data.brand_id) {
+      const exists = await this.prisma.brand_master.findUnique({
+        where: { id: data.brand_id },
       });
+      if (!exists)
+        throw new NotFoundException(`Brand ID '${data.brand_id}' not found`);
+      updateData.brand_id = data.brand_id;
+    }
 
-      if (!meta)
+    // Update generic_id
+    if (data.generic_id) {
+      const exists = await this.prisma.generic_master.findUnique({
+        where: { id: data.generic_id },
+      });
+      if (!exists)
         throw new NotFoundException(
-          `Attribute '${attr.name}' not found for this generic`
+          `Generic ID '${data.generic_id}' not found`
         );
-
-      const normalized = this.normalizeAttributeValue(attr.value, meta);
-
-      await this.prisma.product_attribute_values.create({
-        data: {
-          product_id: id,
-          attribute_id: meta.id,
-          ...normalized,
-        },
-      });
+      updateData.generic_id = data.generic_id;
     }
+
+    // Update base product
+    await this.prisma.product_master.update({
+      where: { id },
+      data: updateData,
+    });
+
+    // Update attributes
+    if (data.attributes?.length) {
+      await this.prisma.product_attribute_values.deleteMany({
+        where: { product_id: id },
+      });
+
+      for (const attr of data.attributes) {
+        await this.prisma.product_attribute_values.create({
+          data: {
+            product_id: id,
+            attribute_id: attr.attribute_id,
+            value_text: attr.value_text ?? null,
+            value_json: attr.value_json ?? null,
+            value_id: null,
+          },
+        });
+      }
+    }
+
+    return this.findOne(id);
   }
-
-  return this.findOne(id);
-}
-
-
 
   // ------------------------------------------------------------
-  // DELETE
+  // DELETE PRODUCT
   // ------------------------------------------------------------
   async remove(id: number) {
     await this.findOne(id);
@@ -352,44 +272,8 @@ export class ProductsService {
       where: { product_id: id },
     });
 
-    return this.prisma.product_master.delete({ where: { id } });
-  }
-
-  // ------------------------------------------------------------
-  // EXPORT CSV
-  // ------------------------------------------------------------
-  async export(res: Response, query: any) {
-    const result = await this.findAll({ ...query, page: 1, limit: 10000 });
-    const products = result.data;
-
-    const headers = [
-      "id",
-      "product_name",
-      "brand",
-      "generic",
-      "qty",
-      "rate",
-      "sku",
-      "extra",
-    ];
-
-    const rows = products.map((p) =>
-      [
-        p.id,
-        `"${(p.name || "").replace(/"/g, '""')}"`,
-        `"${(p.brand?.name || "").replace(/"/g, '""')}"`,
-        `"${(p.generic?.name || "").replace(/"/g, '""')}"`,
-        p.qty ?? "",
-        p.rate ?? "",
-        p.sku ? `"${p.sku.replace(/"/g, '""')}"` : "",
-        p.extra ? `"${JSON.stringify(p.extra).replace(/"/g, '""')}"` : "",
-      ].join(",")
-    );
-
-    const csv = [headers.join(","), ...rows].join("\n");
-
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", 'attachment; filename="products.csv"');
-    res.send(csv);
+    return this.prisma.product_master.delete({
+      where: { id },
+    });
   }
 }

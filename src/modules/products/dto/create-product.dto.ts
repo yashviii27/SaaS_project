@@ -3,16 +3,18 @@ import {
   IsNotEmpty,
   IsInt,
   IsOptional,
-  IsNumber,
   IsArray,
 } from "class-validator";
 
 export class ProductAttributeInput {
-  @IsString()
-  name: string;     // <── attribute_name instead of attribute_id
+  @IsInt()
+  attribute_id: number;
 
   @IsOptional()
-  value: any;       // <── can be string, number, boolean, object
+  value_text?: string;
+
+  @IsOptional()
+  value_json?: any;
 }
 
 export class CreateProductDto {
@@ -20,11 +22,11 @@ export class CreateProductDto {
   @IsNotEmpty()
   product_name: string;
 
-  @IsString()
-  brand: string;     // <── name, not ID
+  @IsInt()
+  brand_id: number;
 
-  @IsString()
-  generic: string;   // <── name, not ID
+  @IsInt()
+  generic_id: number;
 
   @IsOptional()
   qty?: number;
